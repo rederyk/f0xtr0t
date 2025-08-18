@@ -8,9 +8,13 @@ from flask import Response
 from functools import lru_cache
 from dateutil.parser import parse
 try:
-    import gpsd
+    import gps as gpsd  # Usa il modulo di sistema
 except ImportError:
-    logging.info(f"[f0xtr0t] gpsd module not found")
+    try:
+        import gpsd  # Prova l'import originale
+    except ImportError:
+        logging.info(f"[f0xtr0t] gpsd module not found")
+        gpsd = None
 import socket
 import requests
 import subprocess
@@ -19,27 +23,41 @@ from io import BytesIO
 from urllib.request import urlopen
 from zipfile import ZipFile
 
+
+
 class GPSD:
     def __init__(self, gpsdhost, gpsdport):
-        gpsd.connect(host=gpsdhost, port=gpsdport)
-        self.running = True
-        self.coords = {
-            "Latitude": None,
-            "Longitude": None,
-            "Altitude": None
-        }
+        if gpsd is None:
+            raise ImportError("gpsd module not available")
+        
+        try:
+            self.session = gpsd.gps(host=gpsdhost, port=gpsdport, mode=gpsd.WATCH_ENABLE | gpsd.WATCH_NEWSTYLE)
+            self.running = True
+            self.coords = {
+                "Latitude": None,
+                "Longitude": None,
+                "Altitude": None
+            }
+        except Exception as e:
+            logging.error(f"[f0xtr0t] GPS connection error: {e}")
+            raise e
 
     def update_gps(self):
-        if self.running:
-            packet = gpsd.get_current()
-            if packet.mode >= 2:
-                    self.coords = {
-                        "Latitude": packet.lat,
-                        "Longitude": packet.lon,
-                        "Altitude": packet.alt if packet.mode > 2 else None
-                    }
+        if self.running and self.session:
+            try:
+                if self.session.waiting(timeout=1):
+                    if self.session.read() == 0:  # Successful read
+                        if hasattr(self.session, 'fix') and self.session.fix.mode >= 2:
+                            self.coords = {
+                                "Latitude": self.session.fix.latitude if hasattr(self.session.fix, 'latitude') else None,
+                                "Longitude": self.session.fix.longitude if hasattr(self.session.fix, 'longitude') else None,
+                                "Altitude": self.session.fix.altitude if hasattr(self.session.fix, 'altitude') else None
+                            }
+            except Exception as e:
+                logging.error(f"[f0xtr0t] GPS update error: {e}")
         return self.coords
 
+        
 class f0xtr0t(plugins.Plugin):
     __author__ = 'https://github.com/sixt0o'
     __version__ = '1.4.2-alpha'
@@ -106,14 +124,28 @@ class f0xtr0t(plugins.Plugin):
                     response_header_contenttype = 'text/html'
                 elif path.startswith('gpsd'):
                     try:
-                        coords = self.gpsd.update_gps()
+                        # Inizializza GPSD se non è già stato fatto
+                        if self.gpsd is None and self.options.get('gpsprovider') == 'gpsd':
+                            logging.info(f"[f0xtr0t] GPS INIT: gpsd (delayed)")
+                            self.gpsd = GPSD(self.options['gpsdhost'], self.options['gpsdport'])
+                        
+                        if self.gpsd is not None:
+                            coords = self.gpsd.update_gps()
+                        else:
+                            coords = {"Latitude": None, "Longitude": None, "Altitude": None}
+                            
                         response_data = json.dumps(coords)
                         response_status = 200
                         response_mimetype = "application/json"
                         response_header_contenttype = 'application/json'
                     except Exception as error:
-                        logging.error(f"[f0xtr0t] on_webhook all error: {error}")
-                        return
+                        logging.error(f"[f0xtr0t] on_webhook gpsd error: {error}")
+                        # Ritorna una risposta valida anche in caso di errore
+                        response_data = json.dumps({"Latitude": None, "Longitude": None, "Altitude": None})
+                        response_status = 200
+                        response_mimetype = "application/json"
+                        response_header_contenttype = 'application/json'
+                        
                 elif path.startswith('pawgps'):
                     try:
                         response = requests.get("http://192.168.44.1:8080/gps.xhtml")
