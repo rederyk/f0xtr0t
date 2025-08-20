@@ -172,6 +172,13 @@
                         </svg>
                         <span class="mt-2">Center Map</span>
                     </a>
+                    <a href="#" id="navCenterAP" title="Center the map on the last detected AP"
+                        class="text-indigo-100 hover:bg-slate-900 hover:text-white group w-full p-3 rounded-md flex flex-col items-center text-xs font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="text-white group-hover:text-white h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                        <span class="mt-2">Center on AP</span>
+                    </a>
                     <a href="#" id="navMapStyle"
                         class="text-indigo-100 hover:bg-slate-900 hover:text-white group w-full p-3 rounded-md flex flex-col items-center text-xs font-medium">
                         <svg xmlns="http://www.w3.org/2000/svg" class="text-white group-hover:text-white h-6 w-6"
@@ -587,6 +594,7 @@
         var currentMapStyleIndex = 0;
         var navMinimized = false;
         var gpsProvider = null;
+        var initialFit = true;
 
         var mymap = L.map('mapdiv', { zoomControl: false }).setView([39.82, -98.58], 5);
         L.control.zoom({
@@ -778,6 +786,13 @@
             }
         }
 
+        const centerOnAP = () => {
+            if (marker_pos.length > 0) {
+                const lastMarkerPos = marker_pos[marker_pos.length - 1];
+                mymap.flyTo(lastMarkerPos, 18);
+            }
+        }
+
         const checkForUpdate = () => {
             let currentVersion = null;
             let onlineVersion = null;
@@ -867,9 +882,9 @@
             }
             if (count > 0) {
                 mymap.addLayer(markerClusters);
-                if (!locationLoaded) {
-                    var bounds = new L.LatLngBounds(marker_pos);
-                    mymap.fitBounds(bounds);
+                if (initialFit && marker_pos.length > 0) {
+                    mymap.fitBounds(markerClusters.getBounds());
+                    initialFit = false;
                 }
                 if (count > lastPositionCount) {
                     document.getElementById("notification").classList.remove("hidden");
@@ -968,6 +983,10 @@
 
         document.getElementById('navCenterMap').addEventListener('click', () => {
             centerMap();
+        });
+
+        document.getElementById('navCenterAP').addEventListener('click', () => {
+            centerOnAP();
         });
 
         document.getElementById("buttonExecuteUpdate").addEventListener('click', () => {
