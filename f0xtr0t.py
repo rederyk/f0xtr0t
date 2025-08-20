@@ -19,6 +19,7 @@ import socket
 import requests
 import subprocess
 import shutil
+import math
 from io import BytesIO
 from urllib.request import urlopen
 from zipfile import ZipFile
@@ -49,9 +50,9 @@ class GPSD:
                     if self.session.read() == 0:  # Successful read
                         if hasattr(self.session, 'fix') and self.session.fix.mode >= 2:
                             self.coords = {
-                                "Latitude": self.session.fix.latitude if hasattr(self.session.fix, 'latitude') else None,
-                                "Longitude": self.session.fix.longitude if hasattr(self.session.fix, 'longitude') else None,
-                                "Altitude": self.session.fix.altitude if hasattr(self.session.fix, 'altitude') else None
+                                "Latitude": self.session.fix.latitude if hasattr(self.session.fix, 'latitude') and not math.isnan(self.session.fix.latitude) else None,
+                                "Longitude": self.session.fix.longitude if hasattr(self.session.fix, 'longitude') and not math.isnan(self.session.fix.longitude) else None,
+                                "Altitude": self.session.fix.altitude if hasattr(self.session.fix, 'altitude') and not math.isnan(self.session.fix.altitude) else None
                             }
             except Exception as e:
                 logging.error(f"[f0xtr0t] GPS update error: {e}")
@@ -87,6 +88,9 @@ class f0xtr0t(plugins.Plugin):
         response_mimetype = "application/xhtml+xml"
         if not self.ready:
             try:
+
+                gps_data = self.load_gps_from_dir(self.config['bettercap']['handshakes']) 
+                logging.info(f"[f0xtr0t] Data to be sent: {gps_data}")
                 response_data = bytes('''<html>
                     <head>
                     <meta charset="utf-8"/>
@@ -412,7 +416,10 @@ class PositionFile:
         try:
             logging.debug(f"[f0xtr0t] loading {path}")
             with open(path, 'r') as json_file:
-                self._json = json.load(json_file)
+                self._json_str = json_file.read()
+                # Replace NaN with a valid JSON literal like 'null'
+                self._json_str = self._json_str.replace("NaN", "null")
+                self._json = json.loads(self._json_str)
             logging.debug(f"[f0xtr0t] loaded {path}")
         except json.JSONDecodeError as js_e:
             raise js_e
